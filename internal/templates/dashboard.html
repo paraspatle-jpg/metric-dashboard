@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Metric Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #e2e8f0; padding: 1rem; }
+        h1 { text-align: center; margin-bottom: 1rem; font-size: 1.5rem; color: #38bdf8; }
+        .controls { text-align: center; margin-bottom: 1rem; }
+        .controls button { background: #1e293b; color: #94a3b8; border: 1px solid #334155; padding: 0.4rem 1rem; margin: 0 0.25rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; }
+        .controls button.active { background: #38bdf8; color: #0f172a; border-color: #38bdf8; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; max-width: 1200px; margin: 0 auto; }
+        .card { background: #1e293b; border-radius: 10px; padding: 1rem; }
+        .card h2 { font-size: 0.9rem; color: #94a3b8; margin-bottom: 0.5rem; }
+        canvas { width: 100% !important; height: 200px !important; }
+        @media (max-width: 768px) { .grid { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <h1>System Metrics Dashboard</h1>
+    <div class="controls">
+        <button onclick="setRange(15)" id="btn-15">15m</button>
+        <button onclick="setRange(60)" id="btn-60" class="active">1h</button>
+        <button onclick="setRange(360)" id="btn-360">6h</button>
+        <button onclick="setRange(1440)" id="btn-1440">24h</button>
+    </div>
+    <div class="grid">
+        <div class="card"><h2>CPU Usage (%)</h2><canvas id="cpuChart"></canvas></div>
+        <div class="card"><h2>Memory Usage (%)</h2><canvas id="memChart"></canvas></div>
+        <div class="card"><h2>Disk Usage (%)</h2><canvas id="diskChart"></canvas></div>
+        <div class="card"><h2>Network I/O (bytes)</h2><canvas id="netChart"></canvas></div>
+        <div class="card"><h2>Load Average</h2><canvas id="loadChart"></canvas></div>
+    </div>
+    <script>
+        let minutes = 60;
+        const chartOpts = (label, color, isMulti) => ({
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            scales: {
+                x: { type: 'time', time: { tooltipFormat: 'HH:mm:ss' }, ticks: { color: '#64748b', maxTicksLimit: 8 }, grid: { color: '#1e293b' } },
+                y: { ticks: { color: '#64748b' }, grid: { color: '#334155' }, beginAtZero: true }
+            },
+            plugins: { legend: { display: !!isMulti, labels: { color: '#94a3b8' } } }
+        });
+
+        function makeChart(id, label, color, isMulti) {
+            const datasets = isMulti
+                ? [{ label: 'Sent', borderColor: '#38bdf8', backgroundColor: 'rgba(56,189,248,0.1)', data: [], fill: true, tension: 0.3, pointRadius: 0 },
+                   { label: 'Recv', borderColor: '#a78bfa', backgroundColor: 'rgba(167,139,250,0.1)', data: [], fill: true, tension: 0.3, pointRadius: 0 }]
+                : [{ label, borderColor: color, backgroundColor: color + '1a', data: [], fill: true, tension: 0.3, pointRadius: 0 }];
+            return new Chart(document.getElementById(id), { type: 'line', data: { datasets }, options: chartOpts(label, color, isMulti) });
+        }
+
+        const cpuChart  = makeChart('cpuChart',  'CPU %',    '#38bdf8');
+        const memChart  = makeChart('memChart',  'Memory %', '#a78bfa');
+        const diskChart = makeChart('diskChart', 'Disk %',   '#fb923c');
+        const netChart  = makeChart('netChart',  'Network',  '#34d399', true);
+        const loadChart = makeChart('loadChart', 'Load Avg', '#f472b6');
+
+        function setRange(m) {
+            minutes = m;
+            document.querySelectorAll('.controls button').forEach(b => b.classList.remove('active'));
+            document.getElementById('btn-' + m).classList.add('active');
+            fetchData();
+        }
+
+        async function fetchData() {
+            try {
+                const res = await fetch('/api/metrics?minutes=' + minutes);
+                const data = await res.json();
+                const ts = data.map(d => new Date(d.timestamp));
+
+                cpuChart.data.datasets[0].data  = data.map((d, i) => ({ x: ts[i], y: d.cpu_percent }));
+                memChart.data.datasets[0].data  = data.map((d, i) => ({ x: ts[i], y: d.memory_percent }));
+                diskChart.data.datasets[0].data = data.map((d, i) => ({ x: ts[i], y: d.disk_percent }));
+                netChart.data.datasets[0].data  = data.map((d, i) => ({ x: ts[i], y: d.net_bytes_sent }));
+                netChart.data.datasets[1].data  = data.map((d, i) => ({ x: ts[i], y: d.net_bytes_recv }));
+                loadChart.data.datasets[0].data = data.map((d, i) => ({ x: ts[i], y: d.load_avg }));
+
+                [cpuChart, memChart, diskChart, netChart, loadChart].forEach(c => c.update());
+            } catch (e) { console.error('fetch error:', e); }
+        }
+
+        fetchData();
+        setInterval(fetchData, 10000);
+    </script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+agent
+*.db
+*.db-wal
+*.db-shm
+agent.log
